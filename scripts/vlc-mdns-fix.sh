@@ -120,7 +120,14 @@ ensure_sdk() {   # VLC plugin headers and libvlccore import library
     download "$VLC_DOWNLOAD/$VER/win64/$name.sha256" "$pkg.sha256"
     download "$VLC_DOWNLOAD/$VER/win64/$name" "$pkg"
     verify "$pkg" sha256 "$(grep "$name" "$pkg.sha256" | cut -d' ' -f1)"
-    extract "$pkg" "$SDK_ROOT/vlc-$VER" --strip-components=1 "vlc-$VER/sdk/*"
+    if ! extract "$pkg" "$SDK_ROOT/vlc-$VER" --strip-components=1 "vlc-$VER/sdk/*"; then
+        # older Windows tar.exe cannot read .7z: use 7-Zip if it is installed
+        command -v 7z >/dev/null 2>&1 || die "cannot extract $name: install 7-Zip"
+        tmp="$SDK_ROOT/vlc-$VER/7z-tmp"
+        7z x -y -bd -o"$(cygpath -w "$tmp")" "$(cygpath -w "$pkg")" "vlc-$VER/sdk/*" >/dev/null
+        mv "$tmp/vlc-$VER/sdk" "$SDK_ROOT/vlc-$VER/sdk"
+        rm -rf "$tmp"
+    fi
     rm -f "$pkg" "$pkg.sha256"
     [ -f "$SDK/lib/libvlccore.lib" ] || die "no sdk/lib/libvlccore.lib in $name"
 }

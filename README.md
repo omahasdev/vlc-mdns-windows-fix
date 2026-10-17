@@ -69,6 +69,15 @@ Before it replaces the DLL, it compares the plugin ABI and saves the original.
 
 `prepare.cmd` downloads these inputs only and needs no administrator rights.
 
+### Prebuilt DLL
+
+The [Releases](../../releases) have a DLL for each supported VLC version.
+GitHub Actions builds it from this repository with the same script. Each
+release has the SHA-256, the corresponding source, and the install steps. To
+verify that this repository built the file, run
+`gh attestation verify libmicrodns_plugin.dll --repo omahasdev/vlc-mdns-windows-fix`.
+A local build with `install.cmd` gives the same SHA-256.
+
 ### Folders
 
 All downloads and output go into `.work` in this folder. To change this, set

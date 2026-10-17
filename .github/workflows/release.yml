@@ -1,0 +1,91 @@
+# Build libmicrodns_plugin.dll for one VLC 3.0.x version and publish it as a
+# GitHub Release with its SHA-256, the corresponding source, and a build
+# provenance attestation. Start it from the Actions tab (Run workflow).
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      vlc_version:
+        description: VLC 3.0.x version (for example 3.0.24)
+        required: true
+        default: "3.0.24"
+
+permissions:
+  contents: write       # create the release
+  id-token: write       # sign the attestation
+  attestations: write
+
+jobs:
+  build:
+    runs-on: windows-2025
+    env:
+      VLC_VERSION: ${{ inputs.vlc_version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check the version
+        shell: bash
+        run: |
+          echo "$VLC_VERSION" | grep -Eq '^3\.0\.[0-9]+$' || { echo "not a VLC 3.0.x version: $VLC_VERSION"; exit 1; }
+
+      - name: Build
+        shell: bash
+        env:
+          VLC_MDNS_FIX_WORK: ${{ runner.temp }}\work
+        run: sh scripts/vlc-mdns-fix.sh build "$VLC_VERSION"
+
+      - name: Collect the release files
+        shell: bash
+        env:
+          WORK: ${{ runner.temp }}\work
+        run: |
+          set -e
+          work=$(cygpath -u "$WORK")
+          dist=dist
+          mkdir -p "$dist/source/vlc-$VLC_VERSION"
+          cp "$work/out/$VLC_VERSION/libmicrodns_plugin.dll" "$dist/"
+          (cd "$dist" && sha256sum libmicrodns_plugin.dll > libmicrodns_plugin.dll.sha256)
+          # the corresponding source of the DLL (LGPL-2.1-or-later)
+          cp "$work/src/vlc-$VLC_VERSION/"* "$dist/source/vlc-$VLC_VERSION/"
+          cp -r patches build scripts LICENSE README.md "$dist/source/"
+          /c/Windows/System32/tar.exe -a -c -f "$dist/vlc-mdns-fix-$VLC_VERSION-source.zip" -C "$dist/source" .
+          cat "$dist/libmicrodns_plugin.dll.sha256"
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/libmicrodns_plugin.dll
+
+      - name: Publish the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          tag="vlc-$VLC_VERSION"
+          sha=$(cut -d' ' -f1 dist/libmicrodns_plugin.dll.sha256)
+          cat > notes.md <<EOF
+          Patched \`libmicrodns_plugin.dll\` for **VLC $VLC_VERSION, 64-bit**. It fixes mDNS discovery
+          (Chromecast, Local Network servers) on Windows PCs with more than one network adapter.
+          See the [README](https://github.com/$GITHUB_REPOSITORY#readme) for the cause.
+
+          SHA-256: \`$sha\`
+
+          Install:
+          1. Close VLC.
+          2. Copy \`libmicrodns_plugin.dll\` to \`C:\\Program Files\\VideoLAN\\VLC\\plugins\\services_discovery\\\`. Keep a copy of the original file.
+          3. As administrator, run \`"C:\\Program Files\\VideoLAN\\VLC\\vlc-cache-gen.exe" "C:\\Program Files\\VideoLAN\\VLC\\plugins"\`.
+
+          Verify that this repository built the file:
+          \`gh attestation verify libmicrodns_plugin.dll --repo $GITHUB_REPOSITORY\`
+
+          The same build from this commit with \`install.cmd\` gives the same SHA-256.
+          \`vlc-mdns-fix-$VLC_VERSION-source.zip\` holds the corresponding source.
+          EOF
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" --clobber dist/libmicrodns_plugin.dll dist/libmicrodns_plugin.dll.sha256 "dist/vlc-mdns-fix-$VLC_VERSION-source.zip"
+            gh release edit "$tag" --notes-file notes.md
+          else
+            gh release create "$tag" --target "$GITHUB_SHA" --title "VLC $VLC_VERSION mDNS fix" --notes-file notes.md \
+              dist/libmicrodns_plugin.dll dist/libmicrodns_plugin.dll.sha256 "dist/vlc-mdns-fix-$VLC_VERSION-source.zip"
+          fi
