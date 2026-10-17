@@ -1,0 +1,21 @@
+diff --git a/src/mdns.c b/src/mdns.c
+index 7cf28c7..4537aab 100644
+--- a/src/mdns.c
++++ b/src/mdns.c
+@@ -512,6 +512,16 @@ mdns_init(struct mdns_ctx **p_ctx, const char *addr, unsigned short port)
+             if (os_mcast_join(ctx->conns[i].sock, ss_addr, ctx->conns[i].intf_idx,
+                               &ctx->conns[i].intf_addr) < 0)
+                     return mdns_destroy(ctx), (MDNS_NETERR);
++            /* send on the interface this socket joined, not on the OS default
++             * multicast interface; a failure is not fatal for this socket */
++            if (ctx->conns[i].intf_addr.ss_family == AF_INET) {
++                    const struct sockaddr_in *sin = (const struct sockaddr_in *) &ctx->conns[i].intf_addr;
++                    setsockopt(ctx->conns[i].sock, IPPROTO_IP, IP_MULTICAST_IF,
++                               (const void *) &sin->sin_addr, sizeof(sin->sin_addr));
++            } else {
++                    setsockopt(ctx->conns[i].sock, IPPROTO_IPV6, IPV6_MULTICAST_IF,
++                               (const void *) &ctx->conns[i].intf_idx, sizeof(ctx->conns[i].intf_idx));
++            }
+             if (setsockopt(ctx->conns[i].sock, ss_level(&ctx->conns[i].intf_addr),
+                            ctx->conns[i].intf_addr.ss_family == AF_INET ? IP_MULTICAST_TTL : IPV6_MULTICAST_HOPS,
+                            (const void *) &ttl, sizeof(ttl)) < 0) {

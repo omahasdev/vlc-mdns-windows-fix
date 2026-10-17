@@ -1,0 +1,6 @@
+# downloads, sources, built DLLs and backups of the build script
+.work/
+*.dll
+*.o
+*.a
+__pycache__/

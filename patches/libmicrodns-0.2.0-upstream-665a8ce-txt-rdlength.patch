@@ -1,0 +1,35 @@
+From 665a8ce61bdea16bcfb07cc7b303ba7ee86dee2f Mon Sep 17 00:00:00 2001
+From: 94xhn <87560781+94xhn@users.noreply.github.com>
+Date: Tue, 14 Jul 2026 07:19:46 +0800
+Subject: [PATCH] rr: fix TXT parser reading past declared RDLENGTH in
+ rr_read_TXT()
+
+rr_read_TXT() only checked the length-prefix byte of each TXT chunk
+against the remaining receive-buffer size (*n), never against the
+record's own declared RDLENGTH (len). Since len is a uint16_t and the
+loop decrements it by (l + 1) on every iteration, a malformed TXT
+answer whose embedded length byte exceeds the bytes actually remaining
+in the record makes len underflow and wrap to a large value, letting
+the parser keep walking past its own RDLENGTH boundary into unrelated
+trailing packet bytes and allocate spurious TXT nodes from that data.
+
+Add a bound check against the record's remaining declared length
+before consuming each length-prefixed chunk, rejecting the record
+immediately instead of wrapping.
+---
+ src/rr.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/rr.c b/src/rr.c
+index 2414a18..13b106d 100644
+--- a/src/rr.c
++++ b/src/rr.c
+@@ -183,6 +183,8 @@ rr_read_TXT(const uint8_t *ptr, size_t *n, const uint8_t *root, struct rr_entry
+                 struct rr_data_txt *text;
+ 
+                 memcpy(&l, ptr, sizeof(l));
++                if ((uint16_t)(l + 1) > len)
++                        return (NULL);
+                 advance(1);
+                 if (*n < l)
+                         return (NULL);
